@@ -286,6 +286,7 @@ def process_video(video_file_path, output_dir=None, skip_frames=DEFAULT_SKIP_FRA
             cap.release()
         if out is not None:
             out.release()
-        cv2.destroyAllWindows()
-
-## CLI entry point and demo logic removed for Streamlit deployment. All logic is now importable for use in web apps.
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
