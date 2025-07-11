@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import os
 import json
+import cv2
 
 # Add src to path for imports
 dir_path = os.path.dirname(os.path.abspath(__file__))
@@ -11,6 +12,9 @@ src_path = os.path.join(dir_path, 'src')
 sys.path.append(src_path)
 
 from surveillanceCam import process_video
+
+# Webcam recording ke liye naya import
+from src.WebCam import record_from_webcam
 
 # --- Sidebar ---
 st.set_page_config(page_title="AI-Powered CCTV Surveillance", layout="wide")
@@ -104,55 +108,113 @@ elif page == "Live Recording":
     st.markdown("### 🎥 Live Recording from Webcam/CCTV")
     st.write("Record a live video from your webcam or CCTV system, and then goto analyze video page select your live recorded file and analyze it.")
 
-    from src.WebCam import record_live_video
+    def is_webcam_available():
+        cap = cv2.VideoCapture(0)
+        available = cap.isOpened()
+        cap.release()
+        return available
 
-    # Use a unique key
-    # Use a key that is guaranteed unique for this widget and page
-    duration = st.number_input(
-        "Recording duration (seconds)",
-        min_value=5,
-        max_value=120,
-        value=30,
-        step=1,
-        key="live_recording_duration_page_only"
-    )
+    if is_webcam_available():
+        option = st.radio("Select Input Source:", ("Upload Video", "Record from Webcam"))
+    else:
+        st.warning("Webcam not found. Please upload a video file.")
+        option = "Upload Video"
 
-    if st.button("Start Recording", key="start_recording_btn"):
-        with st.spinner(f"Recording for {duration} seconds..."):
-            video_path = record_live_video(recording_duration=duration, show_window=False)
+    if option == "Record from Webcam":
+        # Use a unique key
+        # Use a key that is guaranteed unique for this widget and page
+        duration = st.number_input(
+            "Recording duration (seconds)",
+            min_value=5,
+            max_value=120,
+            value=30,
+            step=1,
+            key="live_recording_duration_page_only"
+        )
 
-        if video_path and os.path.exists(video_path):
-            st.success(f"Recording complete! Saved to: {video_path}")
-            st.video(video_path)
+        if st.button("Start Recording", key="start_recording_btn"):
+            with st.spinner(f"Recording for {duration} seconds..."):
+                video_path = record_from_webcam(duration=duration)
 
-            if st.button("Analyze Recorded Video", key="analyze_recorded_video_btn"):
-                with st.spinner("Analyzing recorded video..."):
-                    results = process_video(str(video_path))
+            if video_path and os.path.exists(video_path):
+                st.success(f"Recording complete! Saved to: {video_path}")
+                st.video(video_path)
 
-                if results and results.get('output_file') and os.path.exists(results['output_file']):
-                    st.success("✅ Analysis complete!")
-                    st.video(results['output_file'])
-                    st.markdown("#### 🎯 Detection Results")
+                if st.button("Analyze Recorded Video", key="analyze_recorded_video_btn"):
+                    with st.spinner("Analyzing recorded video..."):
+                        results = process_video(str(video_path))
 
-                    if results.get('detections'):
-                        st.table([
-                            {"Object": obj, "Count": count}
-                            for obj, count in results['detections'].items()
-                        ])
+                    if results and results.get('output_file') and os.path.exists(results['output_file']):
+                        st.success("✅ Analysis complete!")
+                        st.video(results['output_file'])
+                        st.markdown("#### 🎯 Detection Results")
 
-                    if results.get('person_detected', 0) > 0:
-                        st.markdown(
-                            f"<span style='color:#ffcc00; font-size:18px;'>⚠️ Persons detected: {results['person_detected']}</span>",
-                            unsafe_allow_html=True
-                        )
+                        if results.get('detections'):
+                            st.table([
+                                {"Object": obj, "Count": count}
+                                for obj, count in results['detections'].items()
+                            ])
 
-                    st.markdown(f"**Total frames:** {results.get('total_frames', 0)}")
-                    st.markdown(f"**Objects found:** {', '.join(results.get('objects_found', []))}")
+                        if results.get('person_detected', 0) > 0:
+                            st.markdown(
+                                f"<span style='color:#ffcc00; font-size:18px;'>⚠️ Persons detected: {results['person_detected']}</span>",
+                                unsafe_allow_html=True
+                            )
 
-                    with open(results['output_file'], 'rb') as f:
-                        st.download_button("⬇️ Download analyzed video", f, file_name=Path(results['output_file']).name, key="download_btn_live")
-                else:
-                    st.error("❌ Failed to process video. Please try again.")
+                        st.markdown(f"**Total frames:** {results.get('total_frames', 0)}")
+                        st.markdown(f"**Objects found:** {', '.join(results.get('objects_found', []))}")
+
+                        with open(results['output_file'], 'rb') as f:
+                            st.download_button("⬇️ Download analyzed video", f, file_name=Path(results['output_file']).name, key="download_btn_live")
+                    else:
+                        st.error("❌ Failed to process video. Please try again.")
+    else:
+        st.markdown("### Upload a Video")
+        uploaded_file = st.file_uploader(
+            "Choose a video file",
+            type=["mp4", "avi", "mov"],
+            help="Supported formats: MP4, AVI, MOV. Max size: 500MB.",
+            key="video_uploader_live"
+        )
+
+        if uploaded_file is not None:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as temp_video:
+                temp_video.write(uploaded_file.read())
+                temp_video_path = Path(temp_video.name)
+
+            with st.spinner("Processing video, please wait..."):
+                results = process_video(str(temp_video_path))
+
+            if results and results.get('output_file') and os.path.exists(results['output_file']):
+                st.success("✅ Analysis complete!")
+                st.video(results['output_file'])
+                st.markdown("#### 🎯 Detection Results")
+
+                if results.get('detections'):
+                    st.table([
+                        {"Object": obj, "Count": count}
+                        for obj, count in results['detections'].items()
+                    ])
+
+                if results.get('person_detected', 0) > 0:
+                    st.markdown(
+                        f"<span style='color:#ffcc00; font-size:18px;'>⚠️ Persons detected: {results['person_detected']}</span>",
+                        unsafe_allow_html=True
+                    )
+
+                st.markdown(f"**Total frames:** {results.get('total_frames', 0)}")
+                st.markdown(f"**Objects found:** {', '.join(results.get('objects_found', []))}")
+
+                with open(results['output_file'], 'rb') as f:
+                    st.download_button("⬇️ Download analyzed video", f, file_name=Path(results['output_file']).name, key="download_analyzed_video")
+            else:
+                st.error("❌ Failed to process video. Please try another file.")
+
+            # Clean up temp file
+            try:
+                temp_video_path.unlink()
+            except Exception:
+                pass
 
 elif page == "Saved Analyses":
     st.markdown(
